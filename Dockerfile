@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY sync.py entrypoint.sh app-entrypoint.sh ./
 RUN chmod +x entrypoint.sh app-entrypoint.sh \
     && ffmpeg -f lavfi -i color=c=black:s=320x180:d=1 -c:v libx264 -pix_fmt yuv420p /app/dummy.mp4 \
-    && groupadd -g 100 appuser \
+    && (getent group 100 || groupadd -g 100 appuser) \
     && useradd -r -u 99 -g 100 -d /app appuser \
     && mkdir -p /posters && chown -R 99:100 /app /posters
 
