@@ -5,13 +5,32 @@ library in Emby — with countdown and season/episode badges on the posters.
 
 Tested with Emby Server v4.10.0.17 (beta).
 
-
-
 ## Setup
 
+```yaml
+services:
+  release-poster-sync:
+    image: ghcr.io/mrt187/release-poster-sync:latest
+    container_name: release-poster-sync
+    environment:
+      RADARR_URL: "${RADARR_URL}"
+      RADARR_API_KEY: "${RADARR_API_KEY}"
+      SONARR_URL: "${SONARR_URL}"
+      SONARR_API_KEY: "${SONARR_API_KEY}"
+      DAYS_AHEAD: "${DAYS_AHEAD:-30}"
+      CRON_SCHEDULE: "${CRON_SCHEDULE:-0 */6 * * *}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      TZ: "${TZ:-Europe/Berlin}"
+      PUID: "${PUID:-99}"
+      PGID: "${PGID:-100}"
+    volumes:
+      - ${POSTERS_PATH:-./posters}:/posters
+    restart: unless-stopped
+```
+
 1. Copy `.env.example` to `.env` and fill in your values (Radarr/Sonarr URL +
-   API key, target folder, timezone). **Never commit `.env`.**
-2. Start (pulls the pre-built image from GHCR):
+   API key, target folder, timezone).
+2. Start (reads `.env` automatically, pulls the pre-built image from GHCR):
    ```
    docker compose up -d
    ```
@@ -49,3 +68,8 @@ Tested with Emby Server v4.10.0.17 (beta).
   `poster.jpg` (badges recalculated on every sync, e.g. countdown),
   placeholder video, and `.nfo`.
 - Removes folders no longer in the calendar range.
+
+---
+
+*This project was vibe coded — built through conversation with an AI, not
+hand-crafted line by line. Review the code before trusting it in production.*
