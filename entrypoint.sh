@@ -1,12 +1,12 @@
 #!/bin/sh
 set -e
 
-CRON_SCHEDULE="${CRON_SCHEDULE:-0 */6 * * *}"
+PUID="${PUID:-99}"
+PGID="${PGID:-100}"
 
-echo "Führe initialen Sync aus..."
-python /app/sync.py
+groupmod -o -g "$PGID" appuser 2>/dev/null || (getent group "$PGID" || groupadd -g "$PGID" appgroup)
+usermod -o -u "$PUID" -g "$PGID" appuser 2>/dev/null || true
 
-echo "Starte Cron-Zeitplan: ${CRON_SCHEDULE}"
-printf '%s cd /app && python sync.py >> /proc/1/fd/1 2>> /proc/1/fd/2\n' "${CRON_SCHEDULE}" > /app/crontab.rendered
+chown -R "$PUID:$PGID" /app /posters
 
-exec /usr/local/bin/supercronic -no-reap /app/crontab.rendered
+exec setpriv --reuid="$PUID" --regid="$PGID" --init-groups /app/app-entrypoint.sh

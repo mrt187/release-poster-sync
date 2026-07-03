@@ -29,8 +29,10 @@ Emby displays them as regular movie/show tiles.
 
 ## Security
 
-- Runs as a non-root user (uid 1000). If the mounted host folder is owned by
-  someone else, run `chown -R 1000:1000 <POSTERS_PATH>`.
+- Runs as a non-root user, configurable via `PUID`/`PGID` (default `99`/`100`,
+  matching Unraid's `nobody:users`). Set these in `.env` to match your host
+  user if needed — no manual `chown` required, the container adjusts
+  ownership of `/posters` on startup.
 - API keys are masked before being logged.
 - The `supercronic` binary is verified via SHA1 checksum.
 
