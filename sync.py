@@ -58,13 +58,6 @@ def countdown_text(release_date: str):
         return None
 
 
-def format_date(iso_date: str) -> str:
-    try:
-        return datetime.strptime(iso_date[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
-    except (ValueError, TypeError):
-        return ""
-
-
 def is_released(release_date: str) -> bool:
     try:
         rd = datetime.strptime(release_date[:10], "%Y-%m-%d").date()
@@ -181,11 +174,11 @@ def create_entry(folder_name: str, title: str, year, poster_url: str, release_da
     log.info("Eintrag aktualisiert: %s", folder_name)
 
 
-def sync_radarr() -> set:
+def sync_radarr():
     expected = set()
     if not RADARR_URL or not RADARR_API_KEY:
         log.info("Radarr nicht konfiguriert, überspringe.")
-        return expected
+        return expected, True
 
     start = datetime.now().strftime("%Y-%m-%d")
     end = (datetime.now() + timedelta(days=DAYS_AHEAD)).strftime("%Y-%m-%d")
@@ -204,7 +197,7 @@ def sync_radarr() -> set:
         movies = r.json()
     except requests.RequestException as e:
         log.error("Radarr-Kalender konnte nicht geladen werden: %s", mask_key(str(e)))
-        return expected
+        return expected, False
 
     log.info("Radarr: %d anstehende Filme gefunden.", len(movies))
 
@@ -220,14 +213,14 @@ def sync_radarr() -> set:
         create_entry(folder_name, title, year, poster_url, release_date[:10])
         expected.add(folder_name)
 
-    return expected
+    return expected, True
 
 
-def sync_sonarr() -> set:
+def sync_sonarr():
     expected = set()
     if not SONARR_URL or not SONARR_API_KEY:
         log.info("Sonarr nicht konfiguriert, überspringe.")
-        return expected
+        return expected, True
 
     start = datetime.now().strftime("%Y-%m-%d")
     end = (datetime.now() + timedelta(days=DAYS_AHEAD)).strftime("%Y-%m-%d")
@@ -247,7 +240,7 @@ def sync_sonarr() -> set:
         episodes = r.json()
     except requests.RequestException as e:
         log.error("Sonarr-Kalender konnte nicht geladen werden: %s", mask_key(str(e)))
-        return expected
+        return expected, False
 
     seen_series = set()
     log.info("Sonarr: %d anstehende Episoden gefunden.", len(episodes))
@@ -276,7 +269,7 @@ def sync_sonarr() -> set:
         create_entry(folder_name, title, year, poster_url, air_date, episode_badge)
         expected.add(folder_name)
 
-    return expected
+    return expected, True
 
 
 def cleanup(expected_dirs: set):
@@ -294,9 +287,19 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     log.info("Starte Sync (Zeitraum: heute + %d Tage, Ziel: %s)", DAYS_AHEAD, OUTPUT_DIR)
     expected = set()
-    expected |= sync_radarr()
-    expected |= sync_sonarr()
-    cleanup(expected)
+    radarr_expected, radarr_ok = sync_radarr()
+    sonarr_expected, sonarr_ok = sync_sonarr()
+    expected |= radarr_expected
+    expected |= sonarr_expected
+
+    if radarr_ok and sonarr_ok:
+        cleanup(expected)
+    else:
+        log.warning(
+            "Cleanup übersprungen: mindestens ein Abruf ist fehlgeschlagen "
+            "(Radarr ok=%s, Sonarr ok=%s).",
+            radarr_ok, sonarr_ok,
+        )
     log.info("Sync abgeschlossen.")
 
 
