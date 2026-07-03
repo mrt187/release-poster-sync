@@ -1,6 +1,6 @@
 services:
   release-poster-sync:
-    build: .
+    image: ghcr.io/mrt187/release-poster-sync:latest
     container_name: release-poster-sync
     environment:
       RADARR_URL: "${RADARR_URL}"

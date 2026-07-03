@@ -8,9 +8,9 @@ Emby displays them as regular movie/show tiles.
 
 1. Copy `.env.example` to `.env` and fill in your values (Radarr/Sonarr URL +
    API key, target folder, timezone). **Never commit `.env`.**
-2. Start:
+2. Start (pulls the pre-built image from GHCR):
    ```
-   docker compose up -d --build
+   docker compose up -d
    ```
 3. In Emby: **Add library** → content type **Mixed movies and shows** →
    select your `POSTERS_PATH` folder.
