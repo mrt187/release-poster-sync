@@ -7,6 +7,8 @@ Tested with Emby Server v4.10.0.17 (beta).
 
 ## Setup
 
+1. Save the following as `docker-compose.yml` in a new folder:
+
 ```yaml
 services:
   release-poster-sync:
@@ -28,13 +30,13 @@ services:
     restart: unless-stopped
 ```
 
-1. Copy `.env.example` to `.env` and fill in your values (Radarr/Sonarr URL +
-   API key, target folder, timezone).
-2. Start (reads `.env` automatically, pulls the pre-built image from GHCR):
+2. Put `.env.example` in the same folder, rename it to `.env`, and fill in
+   your values (Radarr/Sonarr URL + API key, target folder, timezone).
+3. Start (reads `.env` automatically, pulls the pre-built image from GHCR):
    ```
    docker compose up -d
    ```
-3. In Emby: **Add library** → content type **Mixed movies and shows** →
+4. In Emby: **Add library** → content type **Mixed movies and shows** →
    select your `POSTERS_PATH` folder.
    - Under "Metadata downloaders", uncheck all providers (e.g. TheMovieDb) so
      Emby only uses the local `.nfo` files already provided.
