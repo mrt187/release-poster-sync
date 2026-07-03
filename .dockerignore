@@ -1,0 +1,7 @@
+.env
+.git
+posters/
+__pycache__/
+*.pyc
+README.md
+mockups/
