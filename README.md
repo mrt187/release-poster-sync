@@ -1,8 +1,11 @@
 # release-poster-sync
 
-Fetches upcoming Radarr/Sonarr releases and creates a folder per title with
-poster (UPCOMING/countdown/S-E badges), placeholder video, and `.nfo`, so
-Emby displays them as regular movie/show tiles.
+Turns your Radarr/Sonarr release calendar into a browsable "Coming Soon"
+library in Emby — with countdown and season/episode badges on the posters.
+
+Tested with Emby Server v4.10.0.17 (beta).
+
+
 
 ## Setup
 
@@ -14,7 +17,8 @@ Emby displays them as regular movie/show tiles.
    ```
 3. In Emby: **Add library** → content type **Mixed movies and shows** →
    select your `POSTERS_PATH` folder.
-   - Disable online metadata providers, enable "local metadata only".
+   - Under "Metadata downloaders", uncheck all providers (e.g. TheMovieDb) so
+     Emby only uses the local `.nfo` files already provided.
 
 ## Configuration (`.env`)
 
@@ -26,6 +30,7 @@ Emby displays them as regular movie/show tiles.
 | `CRON_SCHEDULE` | Sync interval (default every 6h) |
 | `TZ` | Timezone for date/countdown calculations |
 | `POSTERS_PATH` | Host folder for the generated posters |
+| `PUID` / `PGID` | User/group ID the container runs as (default `99`/`100`, matches Unraid's `nobody:users`) |
 
 ## Security
 
