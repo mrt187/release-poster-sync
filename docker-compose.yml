@@ -1,0 +1,18 @@
+services:
+  release-poster-sync:
+    image: ghcr.io/mrt187/release-poster-sync:latest
+    container_name: release-poster-sync
+    environment:
+      RADARR_URL: "${RADARR_URL}"
+      RADARR_API_KEY: "${RADARR_API_KEY}"
+      SONARR_URL: "${SONARR_URL}"
+      SONARR_API_KEY: "${SONARR_API_KEY}"
+      DAYS_AHEAD: "${DAYS_AHEAD:-30}"
+      CRON_SCHEDULE: "${CRON_SCHEDULE:-0 */6 * * *}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+      TZ: "${TZ:-Europe/Berlin}"
+      PUID: "${PUID:-99}"
+      PGID: "${PGID:-100}"
+    volumes:
+      - ${POSTERS_PATH:-./posters}:/posters
+    restart: unless-stopped
