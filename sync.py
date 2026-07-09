@@ -29,6 +29,9 @@ RADARR_API_KEY = os.environ.get("RADARR_API_KEY", "")
 SONARR_URL = os.environ.get("SONARR_URL", "").rstrip("/")
 SONARR_API_KEY = os.environ.get("SONARR_API_KEY", "")
 
+DOWNLOAD_TRAILERS = os.environ.get("DOWNLOAD_TRAILERS", "false").lower() == "true"
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "")
+
 SESSION = requests.Session()
 
 NFO_TEMPLATE = """<movie>
@@ -39,9 +42,69 @@ NFO_TEMPLATE = """<movie>
   <plot>{plot}</plot>
   <rating>{rating}</rating>
 {genre_tags}  <genre>ComingSoon</genre>
-{tmdb_tag}{imdb_tag}  <lockdata>false</lockdata>
+{actor_tags}  <lockdata>true</lockdata>
 </movie>
 """
+
+
+def fetch_tmdb_trailer_id(tmdb_id: int, media_type: str = "tv") -> str:
+    """Holt die YouTube-Trailer-ID von TMDb (für Serien)."""
+    if not TMDB_API_KEY or not tmdb_id:
+        return ""
+    url = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/videos"
+    params = {"api_key": TMDB_API_KEY, "language": "en-US"}
+    try:
+        r = SESSION.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        videos = r.json().get("results", [])
+        for v in videos:
+            if v.get("type") == "Trailer" and v.get("site") == "YouTube":
+                return v.get("key", "")
+    except requests.RequestException as e:
+        log.warning("TMDb Trailer-Abfrage fehlgeschlagen: %s", e)
+    return ""
+
+
+def fetch_tmdb_cast(tmdb_id: int, media_type: str = "tv", limit: int = 10) -> list:
+    """Holt Cast von TMDb für Serien."""
+    if not TMDB_API_KEY or not tmdb_id:
+        return []
+    url = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/credits"
+    params = {"api_key": TMDB_API_KEY}
+    try:
+        r = SESSION.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        cast = r.json().get("cast", [])
+        actors = []
+        for c in cast[:limit]:
+            profile = c.get("profile_path")
+            thumb = f"https://image.tmdb.org/t/p/original{profile}" if profile else None
+            actors.append({"name": c.get("name", ""), "role": c.get("character", ""), "thumb": thumb})
+        return actors
+    except requests.RequestException as e:
+        log.warning("TMDb Cast-Abfrage fehlgeschlagen: %s", e)
+    return []
+
+
+def download_trailer(youtube_id: str, dest_path: str) -> bool:
+    """Lädt Trailer via yt-dlp herunter. Gibt True zurück wenn erfolgreich."""
+    if not youtube_id:
+        return False
+    try:
+        import subprocess
+        url = f"https://www.youtube.com/watch?v={youtube_id}"
+        result = subprocess.run(
+            ["yt-dlp", "-f", "bestvideo[height<=720][vcodec^=avc]+bestaudio/best[height<=720][vcodec^=avc]/best[height<=720]",
+             "--merge-output-format", "mp4", "-o", dest_path, url],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode == 0 and os.path.exists(dest_path):
+            log.info("Trailer heruntergeladen: %s", dest_path)
+            return True
+        log.warning("yt-dlp fehlgeschlagen: %s", result.stderr[-200:])
+    except Exception as e:
+        log.warning("Trailer-Download fehlgeschlagen: %s", e)
+    return False
 
 
 def mask_key(url: str) -> str:
@@ -78,11 +141,51 @@ def build_genre_tags(genres) -> str:
     return lines
 
 
-def build_id_tags(tmdb_id, imdb_id) -> tuple:
-    """Gibt (tmdb_tag, imdb_tag) als NFO-Zeilen zurück, leer falls ID fehlt."""
-    tmdb_tag = f"  <tmdbid>{tmdb_id}</tmdbid>\n" if tmdb_id else ""
-    imdb_tag = f"  <imdbid>{saxutils.escape(str(imdb_id))}</imdbid>\n" if imdb_id else ""
-    return tmdb_tag, imdb_tag
+def build_actor_tags(actors) -> str:
+    lines = ""
+    for a in actors or []:
+        name = saxutils.escape(a.get("name", "").strip())
+        if not name:
+            continue
+        role = saxutils.escape(a.get("role", "").strip())
+        thumb = a.get("thumb", "") or ""
+        lines += "  <actor>\n"
+        lines += f"    <name>{name}</name>\n"
+        if role:
+            lines += f"    <role>{role}</role>\n"
+        if thumb:
+            lines += f"    <thumb>{saxutils.escape(thumb)}</thumb>\n"
+        lines += "  </actor>\n"
+    return lines
+
+
+def fetch_radarr_cast(movie_id, movie_metadata_id=None, limit: int = 10):
+    param_id = movie_metadata_id or movie_id
+    if not param_id:
+        return []
+    url = f"{RADARR_URL}/api/v3/credit"
+    param_key = "movieMetadataId" if movie_metadata_id else "movieId"
+    params = {"apikey": RADARR_API_KEY, param_key: param_id}
+    try:
+        r = SESSION.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        credits_data = r.json()
+    except requests.RequestException as e:
+        log.warning("Cast-Abruf fehlgeschlagen (movieId=%s): %s", movie_id, mask_key(str(e)))
+        return []
+
+    cast = [c for c in credits_data if c.get("type", "").lower() == "cast"]
+    cast.sort(key=lambda c: c.get("order", 999))
+
+    actors = []
+    for c in cast[:limit]:
+        thumb = None
+        for img in c.get("images", []) or []:
+            if img.get("coverType") == "headshot":
+                thumb = img.get("remoteUrl") or img.get("url")
+                break
+        actors.append({"name": c.get("personName", ""), "role": c.get("character", ""), "thumb": thumb})
+    return actors
 
 
 def countdown_text(release_date: str):
@@ -190,7 +293,7 @@ def render_poster(src_path: str, dest_path: str, release_date: str, episode_badg
 
 def create_entry(folder_name: str, title: str, year, poster_url: str, backdrop_url: str,
                   overview: str, genres, rating: float, release_date: str,
-                  episode_badge: str = None, tmdb_id=None, imdb_id=None):
+                  episode_badge: str = None, actors=None, youtube_trailer_id: str = ""):
     """Legt Ordner mit Poster, Backdrop, Platzhalter-Video und .nfo an; Poster-Overlay wird bei jedem Lauf neu gerendert."""
     entry_dir = os.path.join(OUTPUT_DIR, folder_name)
     os.makedirs(entry_dir, exist_ok=True)
@@ -210,20 +313,24 @@ def create_entry(folder_name: str, title: str, year, poster_url: str, backdrop_u
 
     video_path = os.path.join(entry_dir, f"{folder_name}.mp4")
     if not os.path.exists(video_path):
-        shutil.copyfile(DUMMY_VIDEO, video_path)
+        trailer_downloaded = False
+        if DOWNLOAD_TRAILERS and youtube_trailer_id:
+            trailer_downloaded = download_trailer(youtube_trailer_id, video_path)
+        if not trailer_downloaded:
+            shutil.copyfile(DUMMY_VIDEO, video_path)
 
     nfo_path = os.path.join(entry_dir, "movie.nfo")
     plot = build_plot(overview)
     genre_tags = build_genre_tags(genres)
     date_tag = build_date_tag(release_date)
-    tmdb_tag, imdb_tag = build_id_tags(tmdb_id, imdb_id)
+    actor_tags = build_actor_tags(actors)
     with open(nfo_path, "w", encoding="utf-8") as f:
         f.write(NFO_TEMPLATE.format(
             display_title=saxutils.escape(title or ""),
             year=saxutils.escape(str(year or "")),
             release_date=saxutils.escape(release_date),
             plot=plot, rating=rating, genre_tags=genre_tags, date_tag=date_tag,
-            tmdb_tag=tmdb_tag, imdb_tag=imdb_tag,
+            actor_tags=actor_tags,
         ))
 
     log.info("Eintrag aktualisiert: %s", folder_name)
@@ -262,7 +369,10 @@ def sync_radarr():
         overview = movie.get("overview", "")
         genres = movie.get("genres", [])
         rating = extract_rating(movie.get("ratings"))
-        release_date = movie.get("digitalRelease") or movie.get("physicalRelease") or movie.get("inCinemas") or ""
+        release_date = movie.get("digitalRelease") or ""
+        if not release_date:
+            log.debug("Überspringe '%s' (kein Digital Release)", movie.get("title", ""))
+            continue
         if is_released(release_date):
             continue
         folder_name = safe_filename(f"{title} ({year})") if year else safe_filename(title)
@@ -270,10 +380,10 @@ def sync_radarr():
         images = movie.get("images")
         poster_url = extract_image_url(images, "poster", RADARR_URL, RADARR_API_KEY)
         backdrop_url = extract_image_url(images, "fanart", RADARR_URL, RADARR_API_KEY)
-        tmdb_id = movie.get("tmdbId")
-        imdb_id = movie.get("imdbId")
+        actors = fetch_radarr_cast(movie.get("id"), movie.get("movieMetadataId"))
+        youtube_trailer_id = movie.get("youTubeTrailerId", "")
         create_entry(folder_name, title, year, poster_url, backdrop_url, overview, genres, rating,
-                     release_date[:10], tmdb_id=tmdb_id, imdb_id=imdb_id)
+                     release_date[:10], actors=actors, youtube_trailer_id=youtube_trailer_id)
         expected.add(folder_name)
 
     return expected, True
@@ -344,10 +454,15 @@ def sync_sonarr():
         backdrop_url = extract_image_url(images, "fanart", SONARR_URL, SONARR_API_KEY)
 
         tmdb_id = series.get("tmdbId")
-        imdb_id = series.get("imdbId")
+        youtube_trailer_id = ""
+        actors = []
+        if DOWNLOAD_TRAILERS and tmdb_id:
+            youtube_trailer_id = fetch_tmdb_trailer_id(tmdb_id, "tv")
+        if TMDB_API_KEY and tmdb_id:
+            actors = fetch_tmdb_cast(tmdb_id, "tv")
 
         create_entry(folder_name, title, year, poster_url, backdrop_url, overview, genres, rating,
-                     air_date, episode_badge, tmdb_id=tmdb_id, imdb_id=imdb_id)
+                     air_date, episode_badge, actors=actors, youtube_trailer_id=youtube_trailer_id)
         expected.add(folder_name)
 
     return expected, True
